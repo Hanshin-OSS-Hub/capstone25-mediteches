@@ -7,6 +7,7 @@ import MedicalView from '@/components/symptom/MedicalView';
 import { useSymptom } from '@/hooks/useSymptom';
 import { useAuth } from '@/contexts/AuthContext';
 import * as api from '@/lib/api';
+import { classifyDepartments } from '@/lib/departmentClassifier';
 import type { DepartmentRecommendation, Hospital } from '@/types';
 
 type TabKey = 'user' | 'medical';
@@ -56,6 +57,11 @@ export default function SummaryPage() {
   const [recommending, setRecommending] = useState(false);
   const [selectedDept, setSelectedDept] = useState<string | null>(null);
 
+  const [showCompare, setShowCompare] = useState(false);
+  const [aiResults, setAiResults] = useState<DepartmentRecommendation[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
   const [searchingHospitals, setSearchingHospitals] = useState(false);
   const [userLat, setUserLat] = useState<number | null>(null);
@@ -81,13 +87,28 @@ export default function SummaryPage() {
     setRecommendations([]);
     setSelectedDept(null);
     setHospitals([]);
+    setShowCompare(false);
+    setAiResults([]);
+    setAiError(null);
+    await new Promise(r => setTimeout(r, 500 + Math.random() * 500));
+    const result = classifyDepartments(symptoms);
+    setRecommendations(result);
+    setRecommending(false);
+  };
+
+  const handleCompare = async () => {
+    if (showCompare) { setShowCompare(false); return; }
+    setShowCompare(true);
+    if (aiResults.length > 0) return;
+    setAiLoading(true);
+    setAiError(null);
     try {
-      const result = await api.recommendDepartments(symptoms);
-      setRecommendations(result);
-    } catch {
-      setRecommendations([]);
+      const results = await api.recommendDepartments(symptoms);
+      setAiResults(results);
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'AI 분석 오류');
     } finally {
-      setRecommending(false);
+      setAiLoading(false);
     }
   };
 
@@ -343,12 +364,28 @@ export default function SummaryPage() {
                     </svg>
                     <h3 className="text-sm font-semibold text-gray-700">추천 진료과</h3>
                   </div>
-                  <button
-                    onClick={handleRecommend}
-                    className="text-[11px] text-emerald-500 hover:text-emerald-700 font-medium transition-colors"
-                  >
-                    다시 추천
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleCompare}
+                      className={`flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium border transition-all ${
+                        showCompare
+                          ? 'bg-amber-50 border-amber-300 text-amber-700'
+                          : 'bg-white border-gray-200 text-gray-400 hover:border-amber-300 hover:text-amber-600'
+                      }`}
+                      title="AI 결과와 비교"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill={showCompare ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" className={showCompare ? 'text-amber-400' : 'text-gray-400'}>
+                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                      </svg>
+                      AI 비교
+                    </button>
+                    <button
+                      onClick={handleRecommend}
+                      className="text-[11px] text-emerald-500 hover:text-emerald-700 font-medium transition-colors"
+                    >
+                      다시 추천
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -371,12 +408,91 @@ export default function SummaryPage() {
                         )}
                       </div>
                       <p className="text-xs text-gray-500 leading-relaxed">{rec.reason}</p>
+                      {rec.confidence != null && (
+                        <div className="mt-2">
+                          <div className="flex items-center gap-1.5">
+                            <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${rec.confidence >= 70 ? 'bg-emerald-500' : rec.confidence >= 40 ? 'bg-yellow-500' : 'bg-gray-400'}`}
+                                style={{ width: `${rec.confidence}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] font-medium text-gray-400 tabular-nums">{rec.confidence}%</span>
+                          </div>
+                        </div>
+                      )}
                       <p className="text-[10px] text-emerald-500 font-medium mt-2">
                         {selectedDept === rec.department ? '검색 중...' : '클릭하여 주변 병원 찾기 →'}
                       </p>
                     </button>
                   ))}
                 </div>
+
+                {/* Compare view */}
+                {showCompare && (
+                  <div className="mt-4">
+                    {aiLoading && (
+                      <div className="flex items-center gap-3 p-4 rounded-xl bg-indigo-50 border border-indigo-100">
+                        <div className="w-5 h-5 border-2 border-indigo-200 border-t-indigo-500 rounded-full animate-spin shrink-0" />
+                        <p className="text-sm text-gray-600">AI(GPT-4)에 분석을 요청 중...</p>
+                      </div>
+                    )}
+                    {aiError && (
+                      <div className="p-3 rounded-xl border border-red-200 bg-red-50 text-sm text-red-700">
+                        {aiError}
+                        <button onClick={handleCompare} className="ml-2 font-medium underline hover:no-underline">다시 시도</button>
+                      </div>
+                    )}
+                    {!aiLoading && !aiError && aiResults.length > 0 && (() => {
+                      const ruleDepts = new Set(recommendations.map(r => r.department));
+                      const aiDepts = new Set(aiResults.map(r => r.department));
+                      const allDepts = [...new Set([...recommendations.map(r => r.department), ...aiResults.map(r => r.department)])];
+                      return (
+                        <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                          <div className="grid grid-cols-2 border-b border-gray-100 bg-gray-50">
+                            <div className="px-3 py-2 text-xs font-semibold text-gray-600 flex items-center gap-1.5">
+                              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />규칙 기반
+                            </div>
+                            <div className="px-3 py-2 text-xs font-semibold text-gray-600 flex items-center gap-1.5 border-l border-gray-100">
+                              <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />AI (GPT-4)
+                            </div>
+                          </div>
+                          {allDepts.map(dept => {
+                            const rule = recommendations.find(r => r.department === dept);
+                            const ai = aiResults.find(r => r.department === dept);
+                            const both = ruleDepts.has(dept) && aiDepts.has(dept);
+                            return (
+                              <div key={dept} className="grid grid-cols-2 border-b border-gray-50 last:border-b-0">
+                                <div className={`px-3 py-2.5 ${rule ? '' : 'opacity-30'}`}>
+                                  {rule ? (
+                                    <>
+                                      <div className="flex items-center gap-1 mb-0.5">
+                                        <span className="font-semibold text-xs text-gray-800">{dept}</span>
+                                        {both && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-emerald-500"><path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                                      </div>
+                                      <p className="text-[10px] text-gray-500 leading-relaxed">{rule.reason}</p>
+                                    </>
+                                  ) : <p className="text-[10px] text-gray-300 italic">-</p>}
+                                </div>
+                                <div className={`px-3 py-2.5 border-l border-gray-50 ${ai ? '' : 'opacity-30'}`}>
+                                  {ai ? (
+                                    <>
+                                      <div className="flex items-center gap-1 mb-0.5">
+                                        <span className="font-semibold text-xs text-gray-800">{dept}</span>
+                                        {both && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-emerald-500"><path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                                      </div>
+                                      <p className="text-[10px] text-gray-500 leading-relaxed">{ai.reason}</p>
+                                    </>
+                                  ) : <p className="text-[10px] text-gray-300 italic">-</p>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
             )}
 

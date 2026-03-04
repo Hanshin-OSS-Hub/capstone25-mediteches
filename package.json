@@ -11,5 +11,8 @@
     "build:backend": "cd backend && npm run build",
     "dev": "cd backend && npm run dev & cd frontend && npm run dev",
     "build": "cd backend && npm run build && cd ../frontend && npm run build"
+  },
+  "dependencies": {
+    "xml2js": "^0.6.2"
   }
 }
