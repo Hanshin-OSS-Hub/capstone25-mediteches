@@ -192,24 +192,46 @@ docker compose down
 
 Docker 없이 직접 실행하려면 **Node.js 20 이상**이 필요합니다.
 
-#### 백엔드
+### Node.js 설치 (아직 없는 경우)
+
+아래 명령어로 설치 여부를 확인합니다:
 
 ```bash
-cd backend
-npm install
-cp ../.env .env        # 루트의 .env 복사 또는 직접 생성
-npm run dev            # http://localhost:3001
+node --version
+npm --version
 ```
 
-#### 프론트엔드
+명령어가 인식되지 않으면 Node.js를 먼저 설치해야 합니다.
+
+| OS | 설치 방법 |
+|----|-----------|
+| **Windows** | [Node.js 공식 사이트](https://nodejs.org/)에서 LTS 버전 다운로드 후 설치 |
+| **Windows (winget)** | `winget install OpenJS.NodeJS.LTS` |
+| **macOS (Homebrew)** | `brew install node@20` |
+| **Ubuntu / Debian** | `sudo apt update && sudo apt install -y nodejs npm` |
+
+> 설치 후 터미널을 **새로 열어야** `node`, `npm` 명령어가 인식됩니다.
+
+### 의존성 설치
+
+루트 디렉토리에서 한 번만 실행하면 프론트엔드 + 백엔드 의존성이 **모두 설치**됩니다:
 
 ```bash
-cd frontend
 npm install
-npm run dev            # http://localhost:3000
 ```
 
-> 프론트엔드와 백엔드를 별도 터미널에서 동시에 실행해야 합니다.
+### 실행
+
+```bash
+# 프론트엔드 + 백엔드 동시 실행
+npm run dev
+
+# 또는 개별 실행
+npm run dev:frontend   # http://localhost:3000
+npm run dev:backend    # http://localhost:3001
+```
+
+> 개별 실행 시 프론트엔드와 백엔드를 별도 터미널에서 동시에 실행해야 합니다.
 
 ---
 

@@ -1,0 +1,19 @@
+{
+  "name": "project-meditech",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Meditech - 의료 AI 통합 프로젝트",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "install:all": "npm install",
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev:backend": "npm run dev --workspace=backend",
+    "build:frontend": "npm run build --workspace=frontend",
+    "build:backend": "npm run build --workspace=backend",
+    "dev": "npm run dev:backend & npm run dev:frontend",
+    "build": "npm run build:backend && npm run build:frontend"
+  }
+}
