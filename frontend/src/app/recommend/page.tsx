@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import html2canvas from 'html2canvas';
 import type { SymptomInput, DepartmentRecommendation } from '@/types';
 import * as api from '@/lib/api';
 import { classifyDepartments } from '@/lib/departmentClassifier';
@@ -138,6 +139,12 @@ export default function RecommendPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
+  const [feedbackSent, setFeedbackSent] = useState(false);
+  const [feedbackValue, setFeedbackValue] = useState<boolean | null>(null);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [saving, setSaving] = useState(false);
+  const resultRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (symptoms.length > 0) { setLocalSymptoms(symptoms); return; }
     try {
@@ -176,6 +183,36 @@ export default function RecommendPage() {
     } finally {
       setAiLoading(false);
     }
+  }
+
+  async function handleSaveImage() {
+    if (!resultRef.current) return;
+    setSaving(true);
+    try {
+      const canvas = await html2canvas(resultRef.current, { backgroundColor: '#ffffff', scale: 2 });
+      const link = document.createElement('a');
+      link.download = `진료과추천_${new Date().toISOString().slice(0, 10)}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch { /* noop */ } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleFeedback(helpful: boolean) {
+    setFeedbackValue(helpful);
+    setFeedbackSent(true);
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001/api'}/feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          departments: recommendations.map(r => r.department),
+          helpful,
+          comment: feedbackComment || undefined,
+        }),
+      });
+    } catch { /* best-effort */ }
   }
 
   const topUrgency = recommendations[0]?.urgency;
@@ -271,9 +308,23 @@ export default function RecommendPage() {
       )}
 
       {recommendations.length > 0 && (
-        <div className="mb-10 space-y-4">
+        <div ref={resultRef} className="mb-10 space-y-4">
           <div className="flex items-center justify-between mb-2">
             <h2 className="text-lg font-semibold text-gray-900">추천 진료과</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSaveImage}
+                disabled={saving}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border border-gray-200 bg-white text-gray-500 hover:border-blue-300 hover:text-blue-600 transition-all"
+                title="결과 이미지로 저장"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                {saving ? '저장 중...' : '저장'}
+              </button>
             <button
               onClick={handleCompare}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
@@ -286,6 +337,7 @@ export default function RecommendPage() {
               <StarIcon filled={showCompare} />
               {showCompare ? '비교 닫기' : 'AI 비교'}
             </button>
+            </div>
           </div>
 
           {recommendations.map((rec, i) => (
@@ -337,6 +389,49 @@ export default function RecommendPage() {
           )}
           {!aiLoading && !aiError && aiResults.length > 0 && (
             <CompareView ruleResults={recommendations} aiResults={aiResults} />
+          )}
+        </div>
+      )}
+
+      {/* Feedback */}
+      {hasSearched && recommendations.length > 0 && (
+        <div className="mb-10 rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
+          {!feedbackSent ? (
+            <>
+              <p className="text-sm font-semibold text-gray-700 mb-3">이 추천이 도움이 되었나요?</p>
+              <div className="flex items-center gap-3 mb-3">
+                <button
+                  onClick={() => handleFeedback(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-emerald-200 text-emerald-600 text-sm font-medium hover:bg-emerald-50 transition"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z" /><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" /></svg>
+                  도움이 됐어요
+                </button>
+                <button
+                  onClick={() => handleFeedback(false)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-200 text-gray-500 text-sm font-medium hover:bg-gray-50 transition"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 15V19a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z" /><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17" /></svg>
+                  아쉬워요
+                </button>
+              </div>
+              <input
+                type="text"
+                placeholder="추가 의견이 있다면 입력해주세요 (선택)"
+                value={feedbackComment}
+                onChange={(e) => setFeedbackComment(e.target.value)}
+                className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
+              />
+            </>
+          ) : (
+            <div className="flex items-center gap-2 text-sm">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-emerald-500">
+                <path d="M5 12l5 5L20 7" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className="text-gray-600">
+                {feedbackValue ? '감사합니다! 소중한 피드백이 반영됩니다.' : '의견 감사합니다. 더 나은 추천을 위해 개선하겠습니다.'}
+              </span>
+            </div>
           )}
         </div>
       )}

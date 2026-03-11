@@ -162,14 +162,54 @@ export async function searchPharmacies(
   }
 }
 
-export async function getMedicineInfo(
-  medicineName: string,
-): Promise<{ name: string; usage: string; sideEffects: string } | null> {
-  if (!SERVICE_KEY) return null;
+export interface MedicineResult {
+  name: string;
+  company: string;
+  category: string;
+  ingredients: string;
+  storage: string;
+  type: string;
+  eeDocUrl: string;
+  udDocUrl: string;
+  nbDocUrl: string;
+}
+
+function parseIngredients(raw: string): string {
+  if (!raw) return '';
+  return raw
+    .split('/')
+    .map((part) => {
+      const segments = part.split(',').map((s) => s.trim()).filter(Boolean);
+      if (segments.length === 0) return '';
+      const name = segments[0];
+      const amount = segments.slice(1).filter((s) => /\d/.test(s) || /밀리그램|마이크로그램|그램|mg|mcg|g/i.test(s)).join(' ');
+      return amount ? `${name} ${amount}` : name;
+    })
+    .filter(Boolean)
+    .join(', ');
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapDurItem(item: any, fallbackName: string): MedicineResult {
+  return {
+    name: item.ITEM_NAME ?? fallbackName,
+    company: item.ENTP_NAME ?? '',
+    category: item.CLASS_NO ?? '',
+    ingredients: parseIngredients(item.MATERIAL_NAME ?? ''),
+    storage: item.STORAGE_METHOD ?? '',
+    type: item.ETC_OTC_CODE ?? '',
+    eeDocUrl: item.EE_DOC_ID ?? '',
+    udDocUrl: item.UD_DOC_ID ?? '',
+    nbDocUrl: item.NB_DOC_ID ?? '',
+  };
+}
+
+async function fetchDurDrugInfo(medicineName: string, maxRows = 5): Promise<MedicineResult[]> {
+  if (!SERVICE_KEY) return [];
 
   const params = new URLSearchParams({
     serviceKey: SERVICE_KEY,
-    numOfRows: '5',
+    numOfRows: String(maxRows),
     pageNo: '1',
     type: 'json',
     itemName: medicineName,
@@ -179,22 +219,39 @@ export async function getMedicineInfo(
 
   try {
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) return [];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await res.json();
     const items = data?.body?.items;
-    if (!items || items.length === 0) {
-      return { name: medicineName, usage: '정보를 찾을 수 없습니다.', sideEffects: '' };
-    }
+    if (!items || (Array.isArray(items) && items.length === 0)) return [];
 
-    const item = items[0];
-    return {
-      name: item.ITEM_NAME ?? medicineName,
-      usage: item.CLASS_NAME ?? '',
-      sideEffects: item.CHART ?? '',
-    };
-  } catch {
-    return null;
+    const arr = Array.isArray(items) ? items : [items];
+
+    const seen = new Set<string>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return arr.reduce((acc: MedicineResult[], item: any) => {
+      const name: string = item.ITEM_NAME ?? medicineName;
+      if (seen.has(name)) return acc;
+      seen.add(name);
+      acc.push(mapDurItem(item, medicineName));
+      return acc;
+    }, []);
+  } catch (err) {
+    console.error('[DUR API 오류]', err);
+    return [];
   }
+}
+
+export async function getMedicineInfo(
+  medicineName: string,
+): Promise<MedicineResult | null> {
+  const results = await fetchDurDrugInfo(medicineName, 1);
+  return results[0] ?? null;
+}
+
+export async function searchMedicines(
+  keyword: string,
+): Promise<MedicineResult[]> {
+  return fetchDurDrugInfo(keyword, 10);
 }

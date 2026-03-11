@@ -1,18 +1,58 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { supabase } from '../services/supabase';
 import { analyzeSymptoms, recommendDepartments } from '../services/llm';
 import { SymptomInput, SymptomRecord } from '../types';
 
 const router = Router();
 
-router.post('/', async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { user_id, ...symptomInput } = req.body as SymptomInput & { user_id: string };
+const symptomInputSchema = z.object({
+  bodyPart: z.string().min(1).optional(),
+  body_part: z.string().min(1).optional(),
+  painLevel: z.number().int().min(1).max(10).optional(),
+  pain_level: z.number().int().min(1).max(10).optional(),
+  painType: z.string().min(1).optional(),
+  pain_type: z.string().min(1).optional(),
+  onset: z.string().min(1),
+  aggravation: z.string().min(1),
+  memo: z.string().max(500).optional(),
+  side: z.enum(['front', 'back']).optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+});
 
-    if (!user_id) {
-      res.status(400).json({ error: 'user_id는 필수 항목입니다.' });
-      return;
-    }
+function toBackendSymptom(data: z.infer<typeof symptomInputSchema>): SymptomInput {
+  return {
+    body_part: data.body_part ?? data.bodyPart ?? '',
+    pain_level: data.pain_level ?? data.painLevel ?? 1,
+    pain_type: data.pain_type ?? data.painType ?? '',
+    onset: data.onset,
+    aggravation: data.aggravation,
+    memo: data.memo,
+    side: data.side ?? 'front',
+    x: data.x ?? 0,
+    y: data.y ?? 0,
+  };
+}
+
+const saveSchema = symptomInputSchema.extend({
+  user_id: z.string().min(1, 'user_id는 필수 항목입니다.'),
+});
+
+const analyzeSchema = z.object({
+  symptoms: z.array(symptomInputSchema).min(1, '분석할 증상 데이터가 필요합니다.'),
+});
+
+router.post('/', async (req: Request, res: Response): Promise<void> => {
+  const parsed = saveSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: '입력 데이터가 올바르지 않습니다.', details: parsed.error.flatten() });
+    return;
+  }
+
+  try {
+    const { user_id, ...rest } = parsed.data;
+    const symptomInput = toBackendSymptom(rest);
 
     if (!supabase) {
       res.status(201).json({ ...symptomInput, user_id, id: user_id, created_at: new Date().toISOString() });
@@ -70,16 +110,15 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 });
 
 router.post('/analyze', async (req: Request, res: Response): Promise<void> => {
+  const parsed = analyzeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: '입력 데이터가 올바르지 않습니다.', details: parsed.error.flatten() });
+    return;
+  }
+
   try {
-    const { symptoms } = req.body as { symptoms: SymptomInput[] };
-
-    if (!symptoms || !Array.isArray(symptoms) || symptoms.length === 0) {
-      res.status(400).json({ error: '분석할 증상 데이터가 필요합니다.' });
-      return;
-    }
-
-    const analysis = await analyzeSymptoms(symptoms);
-
+    const converted = parsed.data.symptoms.map(toBackendSymptom);
+    const analysis = await analyzeSymptoms(converted);
     res.json({ analysis });
   } catch (err) {
     console.error('Analyze symptoms error:', err);
@@ -88,16 +127,15 @@ router.post('/analyze', async (req: Request, res: Response): Promise<void> => {
 });
 
 router.post('/recommend', async (req: Request, res: Response): Promise<void> => {
+  const parsed = analyzeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: '입력 데이터가 올바르지 않습니다.', details: parsed.error.flatten() });
+    return;
+  }
+
   try {
-    const { symptoms } = req.body as { symptoms: SymptomInput[] };
-
-    if (!symptoms || !Array.isArray(symptoms) || symptoms.length === 0) {
-      res.status(400).json({ error: '추천을 위한 증상 데이터가 필요합니다.' });
-      return;
-    }
-
-    const departments = await recommendDepartments(symptoms);
-
+    const converted = parsed.data.symptoms.map(toBackendSymptom);
+    const departments = await recommendDepartments(converted);
     res.json(departments);
   } catch (err) {
     console.error('Recommend departments error:', err);

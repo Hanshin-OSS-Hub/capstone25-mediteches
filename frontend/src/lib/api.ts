@@ -107,9 +107,28 @@ export async function searchPharmacies(
   return request(`/hospitals/pharmacies?${params.toString()}`);
 }
 
+export interface MedicineInfo {
+  name: string;
+  company: string;
+  category: string;
+  ingredients: string;
+  storage: string;
+  type: string;
+  eeDocUrl: string;
+  udDocUrl: string;
+  nbDocUrl: string;
+}
+
 export async function getMedicineInfo(
   name: string,
-): Promise<{ name: string; description: string }> {
+): Promise<MedicineInfo> {
   const params = new URLSearchParams({ name });
   return request(`/hospitals/medicine?${params.toString()}`);
+}
+
+export async function searchMedicines(
+  name: string,
+): Promise<MedicineInfo[]> {
+  const params = new URLSearchParams({ name });
+  return request(`/hospitals/medicine/search?${params.toString()}`);
 }
