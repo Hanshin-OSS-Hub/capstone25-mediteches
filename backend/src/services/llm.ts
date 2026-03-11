@@ -5,6 +5,95 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+const IMAGE_REQUEST_KEYWORDS = [
+  '그려', '그림', '이미지', '만화', '일러스트',
+  '그려줘', '그려줄래', '그려주세요', '그려봐',
+  '4컷', '네컷', '4칸', '네칸', '만들어줘',
+  'draw', 'image', 'comic', 'picture', 'illustration',
+];
+
+export function isImageRequest(message: string): boolean {
+  const lower = message.toLowerCase();
+  return IMAGE_REQUEST_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+export async function extractImageTopic(message: string): Promise<string> {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4',
+    messages: [
+      {
+        role: 'system',
+        content:
+          '사용자의 메시지에서 이미지/만화의 주제를 추출하세요.\n' +
+          '의료/건강 관련 주제로 변환하여, 4컷 만화의 각 장면을 한국어로 구체적으로 설명하세요.\n' +
+          '반드시 아래 JSON 형식으로만 응답하세요:\n' +
+          '{"topic":"주제 요약","panels":["1컷 장면 설명","2컷 장면 설명","3컷 장면 설명","4컷 장면 설명"]}',
+      },
+      { role: 'user', content: message },
+    ],
+    temperature: 0.7,
+    max_tokens: 400,
+  });
+
+  return response.choices[0]?.message?.content || '';
+}
+
+export async function generateComicImage(message: string): Promise<string | null> {
+  try {
+    const topicJson = await extractImageTopic(message);
+    let panels: string[];
+    let topic: string;
+
+    try {
+      const parsed = JSON.parse(topicJson);
+      topic = parsed.topic || '건강 생활';
+      panels = parsed.panels || [];
+    } catch {
+      topic = message;
+      panels = [
+        '캐릭터가 건강 문제를 발견하는 장면',
+        '캐릭터가 정보를 검색하는 장면',
+        '캐릭터가 올바른 조치를 취하는 장면',
+        '캐릭터가 건강해진 모습',
+      ];
+    }
+
+    const prompt =
+      `[System] 당신은 의료/건강 교육용 4컷 만화를 그리는 화가입니다.\n` +
+      `글자는 이미지에 포함하지 마세요.\n\n` +
+      `[Style]\n` +
+      `- 3D Lowpoly 스타일의 4컷 만화\n` +
+      `- 2등신 캐릭터, 둥글고 귀여운 체형\n` +
+      `- 밝고 경쾌한 색감, 단색 또는 그라데이션 배경\n` +
+      `- 4컷을 2x2 그리드로 배치 (좌상→우상→좌하→우하 순서)\n` +
+      `- 각 컷 사이에 얇은 흰색 구분선\n\n` +
+      `[Content] 주제: ${topic}\n` +
+      `- 1컷: ${panels[0] || '문제 발견'}\n` +
+      `- 2컷: ${panels[1] || '정보 탐색'}\n` +
+      `- 3컷: ${panels[2] || '행동 실천'}\n` +
+      `- 4컷: ${panels[3] || '긍정적 결과'}\n\n` +
+      `[Layout] 정사각형 이미지 안에 2x2 그리드로 4개의 장면을 배치하세요.`;
+
+    console.log('[이미지 생성] 프롬프트:', prompt.substring(0, 200), '...');
+
+    const response = await openai.images.generate({
+      model: 'dall-e-3',
+      prompt,
+      n: 1,
+      size: '1024x1024',
+      quality: 'standard',
+      style: 'vivid',
+    });
+
+    const imageUrl = response.data?.[0]?.url ?? null;
+    console.log('[이미지 생성] 결과:', imageUrl ? '성공' : '실패');
+    return imageUrl;
+  } catch (err) {
+    console.error('[이미지 생성] 오류:', err);
+    return null;
+  }
+}
+
 function normalizeSymptom(s: Record<string, unknown>) {
   return {
     bodyPart: (s.bodyPart ?? s.body_part ?? '') as string,

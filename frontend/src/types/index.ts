@@ -2,6 +2,7 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'bot';
   content: string;
+  imageUrl?: string;
   timestamp: Date;
 }
 

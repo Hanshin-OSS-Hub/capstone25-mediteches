@@ -94,14 +94,29 @@ export default function FloatingChat() {
             >
               <div
                 className={`
-                  max-w-[80%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed
+                  max-w-[80%] rounded-2xl text-sm leading-relaxed overflow-hidden
                   ${msg.role === 'user'
                     ? 'bg-emerald-500 text-white rounded-br-md'
                     : 'bg-gray-100 text-gray-800 rounded-bl-md'
                   }
+                  ${msg.imageUrl ? 'p-0' : 'px-4 py-2.5'}
                 `}
               >
-                {msg.content}
+                {msg.content && (
+                  <div className={msg.imageUrl ? 'px-4 py-2.5' : ''}>
+                    {msg.content}
+                  </div>
+                )}
+                {msg.imageUrl && (
+                  <a href={msg.imageUrl} target="_blank" rel="noopener noreferrer">
+                    <img
+                      src={msg.imageUrl}
+                      alt="4컷 만화"
+                      className="w-full rounded-b-2xl cursor-pointer hover:opacity-90 transition-opacity"
+                      loading="lazy"
+                    />
+                  </a>
+                )}
               </div>
             </div>
           ))}

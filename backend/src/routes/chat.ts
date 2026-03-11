@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { supabase } from '../services/supabase';
-import { chatWithAI, simplifyExplanation } from '../services/llm';
+import { chatWithAI, simplifyExplanation, isImageRequest, generateComicImage } from '../services/llm';
 import { getMedicineInfo } from '../services/publicdata';
 
 const router = Router();
@@ -25,18 +25,23 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
 
   try {
     const { message, image_url, user_id } = parsed.data;
-    const reply = await chatWithAI(message);
+    const wantsImage = isImageRequest(message);
+
+    const [reply, imageUrl] = await Promise.all([
+      chatWithAI(message),
+      wantsImage ? generateComicImage(message) : Promise.resolve(null),
+    ]);
 
     if (supabase) {
       await supabase.from('chat_logs').insert({
         user_id,
         message,
         reply,
-        image_url: image_url ?? null,
+        image_url: imageUrl ?? image_url ?? null,
       });
     }
 
-    res.json({ reply });
+    res.json({ reply, ...(imageUrl && { imageUrl }) });
   } catch (err) {
     console.error('Chat error:', err);
     res.status(500).json({ error: 'AI 채팅 중 오류가 발생했습니다.' });

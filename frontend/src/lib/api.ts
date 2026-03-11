@@ -34,7 +34,7 @@ export async function sendChatMessage(
   message: string,
   userId?: string,
 ): Promise<ChatMessage> {
-  const data = await request<{ reply: string }>('/chat', {
+  const data = await request<{ reply: string; imageUrl?: string }>('/chat', {
     method: 'POST',
     body: JSON.stringify({ message, user_id: userId ?? 'guest' }),
   });
@@ -42,6 +42,7 @@ export async function sendChatMessage(
     id: crypto.randomUUID(),
     role: 'bot',
     content: data.reply,
+    ...(data.imageUrl && { imageUrl: data.imageUrl }),
     timestamp: new Date(),
   };
 }
