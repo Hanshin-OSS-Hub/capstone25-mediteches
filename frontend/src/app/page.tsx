@@ -51,6 +51,19 @@ const features = [
       </svg>
     ),
   },
+  // ▼ 여기서부터 새로 추가된 부분입니다! ▼
+  {
+    title: "복약 타이머",
+    desc: "약 먹을 시간을 놓치지 않게 스마트 알림을 제공합니다",
+    href: "/medication",
+    icon: (
+      <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" className="w-10 h-10 text-emerald-500">
+        <circle cx="24" cy="24" r="16" />
+        <path d="M24 12v12l8 8" />
+      </svg>
+    ),
+  },
+  // ▲ 여기까지 ▲
 ];
 
 export default function Home() {
