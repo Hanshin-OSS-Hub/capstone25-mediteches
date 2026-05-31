@@ -14,6 +14,7 @@ interface SymptomFormData {
 
 interface SymptomPanelProps {
   selectedRegionId: string;
+  pinPosition: { x: number; y: number } | null;
   side: 'front' | 'back';
   onSubmit: (data: SymptomFormData) => void;
   initialData?: Partial<SymptomFormData> | null;
@@ -135,6 +136,7 @@ function CompletedBadge({ text }: { text: string }) {
 
 export default function SymptomPanel({
   selectedRegionId,
+  pinPosition,
   side,
   onSubmit,
   initialData,
@@ -156,7 +158,7 @@ export default function SymptomPanel({
       setAggravation(initialData.aggravation || '');
       setMemo(initialData.memo || '');
       setStep(0);
-    } else {
+    } else if (pinPosition) {
       setStep(0);
       setPainLevel(5);
       setPainType('');
@@ -164,15 +166,20 @@ export default function SymptomPanel({
       setAggravation('');
       setMemo('');
     }
-  }, [selectedRegionId, initialData, editMode]);
+  }, [selectedRegionId, pinPosition, initialData, editMode]);
 
   const allRegions = [...FRONT_REGIONS, ...BACK_REGIONS];
   const region = allRegions.find((r) => r.id === selectedRegionId);
-  const regionLabel = region?.label ?? selectedRegionId;
+  const regionLabel =
+    selectedRegionId === 'pinpoint'
+      ? '핀 지정 위치'
+      : region?.label ?? selectedRegionId;
+
+  const hasPin = pinPosition !== null && pinPosition.x > 0 && pinPosition.y > 0;
 
   const handleSubmit = () => {
     onSubmit({
-      bodyPart: selectedRegionId,
+      bodyPart: selectedRegionId || 'pinpoint',
       painLevel,
       painType,
       onset,
@@ -195,19 +202,19 @@ export default function SymptomPanel({
     if (step > 0) setStep(step - 1);
   };
 
-  if (!selectedRegionId) {
+  if (!hasPin) {
     return (
       <div className="w-full max-w-md rounded-2xl bg-white border border-gray-100 shadow-sm p-10 flex flex-col items-center justify-center min-h-[420px]">
-        <div className="w-14 h-14 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center mb-5">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round">
-            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Z" />
-            <path d="M8 12h8M12 8v8" />
+        <div className="w-14 h-14 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center mb-5">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-emerald-500">
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" fill="currentColor" fillOpacity="0.2" stroke="currentColor" strokeWidth="1.5" />
+            <circle cx="12" cy="9" r="2.5" fill="currentColor" />
           </svg>
         </div>
-        <p className="text-lg font-semibold text-gray-700 mb-2">부위를 선택해주세요</p>
+        <p className="text-lg font-semibold text-gray-700 mb-2">아픈 곳에 핀을 찍어주세요</p>
         <p className="text-sm text-gray-400 text-center leading-relaxed">
-          바디맵에서 아픈 부위를 클릭하면<br />
-          증상을 단계별로 입력할 수 있습니다
+          바디맵 실루엣 위를 클릭하면<br />
+          정확한 위치에 핀이 표시됩니다
         </p>
       </div>
     );
@@ -222,9 +229,15 @@ export default function SymptomPanel({
         <div className="flex items-center justify-between">
           <div>
             <span className={`text-[11px] font-semibold uppercase tracking-wider ${editMode ? 'text-blue-400' : side === 'front' ? 'text-emerald-400' : 'text-blue-400'}`}>
-              {editMode ? '수정 중' : '선택 부위'} · {side === 'front' ? '앞면' : '뒷면'}
+              {editMode ? '수정 중' : '핀 위치'} · {side === 'front' ? '앞면' : '뒷면'}
             </span>
             <p className="mt-0.5 text-lg font-bold text-gray-900">{regionLabel}</p>
+            {pinPosition && (
+              <p className="mt-1 text-xs text-emerald-600 flex items-center gap-1">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/></svg>
+                정확한 위치 지정됨
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {STEPS.map((_, i) => (

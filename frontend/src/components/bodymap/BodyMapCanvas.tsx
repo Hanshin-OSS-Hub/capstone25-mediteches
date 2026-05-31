@@ -1,12 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import {
+  findRegionAtPoint,
+  isPointInBodyOutline,
+  clientToSvgPoint,
+  type PainPinDisplay,
+  type PinSelection,
+} from '@/lib/bodymapPin';
+import { PainPinMarkerSvg } from './PainPinMarker';
 
 interface BodyMapCanvasProps {
   side: 'front' | 'back';
-  onRegionSelect: (regionId: string) => void;
-  selectedRegions: string[];
-  recordedRegions: string[];
+  onPinSelect: (pin: PinSelection) => void;
+  selectedPin: { x: number; y: number } | null;
+  selectedRegionId: string;
+  painPins: PainPinDisplay[];
   onSideChange: (side: 'front' | 'back') => void;
 }
 
@@ -76,37 +85,67 @@ const BODY_OUTLINE_FRONT = 'M150,8 C130,8 125,25 127,55 C130,68 142,80 150,82 C1
 
 const BODY_OUTLINE_BACK = 'M150,8 C130,8 125,25 127,55 C130,68 142,80 150,82 C158,80 170,68 173,55 C175,25 170,8 150,8Z M141,82 L138,100 L100,100 C78,102 68,114 63,128 L55,200 L48,280 L36,325 L40,328 L70,322 L74,280 L82,195 L82,130 L100,108 L200,108 L218,130 L218,195 L226,280 L230,322 L260,328 L264,325 L252,280 L245,200 L237,128 C232,114 222,102 200,100 L162,100 L159,82Z M110,305 L112,405 L110,435 L108,498 L95,535 L148,535 L146,498 L144,435 L146,405 L150,305 L154,405 L156,435 L160,498 L157,535 L210,535 L198,498 L192,435 L190,405 L192,305Z';
 
-function getRegionFill(regionId: string, hoveredRegion: string | null, selectedRegions: string[], recordedRegions: string[]) {
-  if (recordedRegions.includes(regionId)) return 'rgba(239, 68, 68, 0.18)';
-  if (selectedRegions.includes(regionId)) return 'rgba(16, 185, 129, 0.25)';
-  if (hoveredRegion === regionId) return 'rgba(16, 185, 129, 0.12)';
-  return 'transparent';
-}
-
-function getRegionStroke(regionId: string, hoveredRegion: string | null, selectedRegions: string[], recordedRegions: string[]) {
-  if (recordedRegions.includes(regionId)) return '#ef4444';
-  if (selectedRegions.includes(regionId)) return '#10B981';
-  if (hoveredRegion === regionId) return '#10B981';
-  return 'rgba(209,213,219,0.4)';
-}
-
 export default function BodyMapCanvas({
   side,
-  onRegionSelect,
-  selectedRegions,
-  recordedRegions,
+  onPinSelect,
+  selectedPin,
+  selectedRegionId,
+  painPins,
   onSideChange,
 }: BodyMapCanvasProps) {
+  const svgRef = useRef<SVGSVGElement>(null);
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
+  const [hoverPoint, setHoverPoint] = useState<{ x: number; y: number } | null>(null);
 
   const regions = side === 'front' ? FRONT_REGIONS : BACK_REGIONS;
   const outline = side === 'front' ? BODY_OUTLINE_FRONT : BODY_OUTLINE_BACK;
 
-  const handleRegionClick = (regionId: string) => {
-    onRegionSelect(regionId);
+  const handleSvgClick = (clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const loc = clientToSvgPoint(svg, clientX, clientY);
+    if (!loc) return;
+
+    const regionId = findRegionAtPoint(regions, loc.x, loc.y);
+    if (regionId) {
+      onPinSelect({ x: loc.x, y: loc.y, regionId });
+      return;
+    }
+
+    // Fallback: accept click if within body bounding area
+    const inBodyBounds = loc.x >= 30 && loc.x <= 270 && loc.y >= 5 && loc.y <= 540;
+    if (inBodyBounds && isPointInBodyOutline(outline, loc.x, loc.y)) {
+      onPinSelect({ x: loc.x, y: loc.y, regionId: 'pinpoint' });
+    } else if (inBodyBounds && loc.x >= 60 && loc.x <= 240 && loc.y >= 80 && loc.y <= 310) {
+      // Torso area fallback — outline winding rule misses this area
+      onPinSelect({ x: loc.x, y: loc.y, regionId: 'pinpoint' });
+    }
   };
 
-  const hoveredLabel = regions.find((r) => r.id === hoveredRegion)?.label;
+  const handleSvgMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const loc = clientToSvgPoint(svg, e.clientX, e.clientY);
+    if (!loc) { setHoverPoint(null); setHoveredRegion(null); return; }
+
+    const region = findRegionAtPoint(regions, loc.x, loc.y);
+    const inBodyBounds = loc.x >= 30 && loc.x <= 270 && loc.y >= 5 && loc.y <= 540;
+    if (region || (inBodyBounds && isPointInBodyOutline(outline, loc.x, loc.y)) || (inBodyBounds && loc.x >= 60 && loc.x <= 240 && loc.y >= 80 && loc.y <= 310)) {
+      setHoverPoint(loc);
+      setHoveredRegion(region);
+    } else {
+      setHoverPoint(null);
+      setHoveredRegion(null);
+    }
+  };
+
+  const hoveredLabel = hoveredRegion
+    ? regions.find((r) => r.id === hoveredRegion)?.label
+    : hoverPoint
+      ? '클릭하여 핀 찍기'
+      : null;
+
+  const sidePins = painPins.filter((p) => p.side === side);
 
   return (
     <div className="flex flex-col items-center gap-5 w-full max-w-[340px]">
@@ -143,11 +182,22 @@ export default function BodyMapCanvas({
         </button>
       </div>
 
-      {/* Body SVG */}
+      {/* Body SVG — click anywhere on silhouette to pin */}
       <div className="relative w-full" style={{ aspectRatio: '300/545' }}>
         <svg
+          ref={svgRef}
           viewBox="0 0 300 545"
-          className="w-full h-full select-none"
+          className="w-full h-full select-none cursor-crosshair"
+          onClick={(e) => handleSvgClick(e.clientX, e.clientY)}
+          onTouchEnd={(e) => {
+            const touch = e.changedTouches[0];
+            if (touch) {
+              e.preventDefault();
+              handleSvgClick(touch.clientX, touch.clientY);
+            }
+          }}
+          onMouseMove={handleSvgMove}
+          onMouseLeave={() => { setHoverPoint(null); setHoveredRegion(null); }}
         >
           {/* Background body outline */}
           <path
@@ -169,35 +219,56 @@ export default function BodyMapCanvas({
             />
           )}
 
-          {/* Clickable regions */}
-          {regions.map((region) => (
-            <path
-              key={region.id}
-              d={region.path}
-              fill={getRegionFill(region.id, hoveredRegion, selectedRegions, recordedRegions)}
-              stroke={getRegionStroke(region.id, hoveredRegion, selectedRegions, recordedRegions)}
-              strokeWidth={selectedRegions.includes(region.id) || recordedRegions.includes(region.id) ? '1.5' : '0.8'}
-              strokeDasharray={hoveredRegion === region.id && !selectedRegions.includes(region.id) && !recordedRegions.includes(region.id) ? '4 2' : 'none'}
-              className="cursor-pointer transition-all duration-150"
-              onClick={() => handleRegionClick(region.id)}
-              onMouseEnter={() => setHoveredRegion(region.id)}
-              onMouseLeave={() => setHoveredRegion(null)}
+          {/* Region highlights (hover / selected area) */}
+          {regions.map((region) => {
+            const isHovered = hoveredRegion === region.id;
+            const isSelectedArea = selectedRegionId === region.id;
+            return (
+              <path
+                key={region.id}
+                d={region.path}
+                fill={
+                  isSelectedArea
+                    ? 'rgba(16, 185, 129, 0.2)'
+                    : isHovered
+                      ? 'rgba(16, 185, 129, 0.1)'
+                      : 'transparent'
+                }
+                stroke={
+                  isSelectedArea ? '#10B981' : isHovered ? '#6ee7b7' : 'rgba(209,213,219,0.35)'
+                }
+                strokeWidth={isSelectedArea ? '1.2' : '0.6'}
+                strokeDasharray={isHovered && !isSelectedArea ? '3 2' : 'none'}
+                className="pointer-events-none transition-all duration-150"
+              />
+            );
+          })}
+
+          {/* Hover preview pin */}
+          {hoverPoint && !selectedPin && (
+            <g opacity={0.45} pointerEvents="none">
+              <PainPinMarkerSvg x={hoverPoint.x} y={hoverPoint.y} selected />
+            </g>
+          )}
+
+          {/* Saved pain pins */}
+          {sidePins.map((pin) => (
+            <PainPinMarkerSvg
+              key={pin.id}
+              x={pin.x}
+              y={pin.y}
+              painLevel={pin.painLevel}
             />
           ))}
 
-          {/* Recorded region dots */}
-          {recordedRegions.map((regionId) => {
-            const region = regions.find((r) => r.id === regionId);
-            if (!region) return null;
-            return (
-              <g key={`dot-${regionId}`}>
-                <circle cx={region.labelPos.x} cy={region.labelPos.y} r="8" fill="rgba(239, 68, 68, 0.15)">
-                  <animate attributeName="r" values="6;10;6" dur="2s" repeatCount="indefinite" />
-                </circle>
-                <circle cx={region.labelPos.x} cy={region.labelPos.y} r="4" fill="#ef4444" stroke="#fff" strokeWidth="1.5" />
-              </g>
-            );
-          })}
+          {/* Current selection pin */}
+          {selectedPin && (
+            <PainPinMarkerSvg
+              x={selectedPin.x}
+              y={selectedPin.y}
+              selected
+            />
+          )}
 
           {/* Side label watermark */}
           <text x="150" y="540" textAnchor="middle" className="text-[10px]" fill={side === 'front' ? '#c8d5cd' : '#c7d0e6'} fontWeight="500">
@@ -212,6 +283,10 @@ export default function BodyMapCanvas({
           </div>
         )}
       </div>
+
+      <p className="text-xs text-center text-gray-400 px-2">
+        몸 실루엣 위를 <span className="text-emerald-600 font-medium">클릭</span>해 아픈 곳에 핀을 찍으세요
+      </p>
     </div>
   );
 }
