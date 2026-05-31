@@ -158,7 +158,7 @@ export async function simplifyExplanation(medicalText: string): Promise<string> 
   console.log('[AI 요청] 입력 길이:', medicalText.length, '자');
 
   const response = await openai.chat.completions.create({
-    model: 'gpt-4',
+    model: 'gpt-4o',
     messages: [
       {
         role: 'system',
@@ -168,13 +168,21 @@ export async function simplifyExplanation(medicalText: string): Promise<string> 
           'AI 추측보다 공공데이터 기반 사실을 우선하세요.\n\n' +
           '## 형광펜 마커 규칙 (가장 중요 - 반드시 적용)\n' +
           '답변 본문 안에서 다음 3가지 마커를 적극적으로 사용하세요:\n' +
-          '- {{green|용어|쉬운 설명}} : 환자가 뜻을 모를 수 있는 모든 의학 용어, 질환명, 시술명, 약물명, 검사명에 사용\n' +
+          '- {{green|용어|쉬운 설명}} : 환자가 뜻을 모를 수 있는 모든 의학 용어에 사용\n' +
           '- {{yellow|텍스트|주의 이유}} : 주의가 필요한 정보에 사용\n' +
           '- {{orange|텍스트|반드시 지켜야 하는 이유}} : 꼭 지켜야 하는 정보에 사용\n\n' +
-          '★ green 마커 필수 적용 대상: 질환명(반월상연골 병변, 슬개대퇴 통증 증후군, 연골연화증, 활막염 등), ' +
-          '약물명(소염진통제, 아목시실린 등), 시술명(DNA 주사, MRI 등), 의학 약어(PFPS, VMO 등), ' +
-          '해부학 용어(대퇴사두근, 고관절 등)에 반드시 적용하세요.\n' +
-          '★ 마커 없이 의학 용어를 그냥 노출하지 마세요. 어려운 단어가 보이면 무조건 {{green}} 마커로 감싸세요.\n' +
+          '★★★ green 마커의 "쉬운 설명" 작성 규칙 (매우 중요) ★★★\n' +
+          '- 절대로 단순 번역이나 사전적 정의를 쓰지 마세요!\n' +
+          '- 중학생이 바로 이해할 수 있는 비유나 일상 언어로 설명하세요.\n' +
+          '- 나쁜 예: {{green|MRI|자기 공명 영상}} ← 이건 그냥 번역이지 설명이 아님!\n' +
+          '- 좋은 예: {{green|MRI|자석을 이용해 몸 속을 사진 찍는 검사. 방사선 없이 안전함}}\n' +
+          '- 나쁜 예: {{green|반월상연골|반달 모양의 연골}} ← 너무 딱딱함\n' +
+          '- 좋은 예: {{green|반월상연골|무릎 안에서 충격을 흡수하는 쿠션 같은 물렁뼈}}\n' +
+          '- 나쁜 예: {{green|소염진통제|염증을 줄이는 약}} ← 너무 짧고 불친절\n' +
+          '- 좋은 예: {{green|소염진통제|붓기와 통증을 동시에 줄여주는 약. 타이레놀보다 강함}}\n' +
+          '- "이게 뭔지 모르는 할머니/중학생에게 어떻게 설명할까?"를 기준으로 작성하세요.\n\n' +
+          '★ green 마커 필수 적용 대상: 질환명, 약물명, 시술명, 검사명, 의학 약어, 해부학 용어\n' +
+          '★ 마커 없이 의학 용어를 그냥 노출하지 마세요.\n' +
           '★ yellow/orange 마커도 관리법과 주의사항에서 핵심 행동에 적극 사용하세요.\n\n' +
           '===== 반드시 아래 5개 섹션으로만 구성하세요 =====\n\n' +
           '## 쉽게 풀어본 설명\n' +
@@ -316,4 +324,83 @@ export async function recommendDepartments(
     console.warn('[AI 응답] JSON 파싱 실패, 기본값 반환');
     return [{ department: '내과', reason: '일반적인 증상 확인을 위해 내과 방문을 권장합니다.', urgency: 'normal' as const }];
   }
+}
+
+export interface ParsedMedicationSchedule {
+  name: string;
+  startHour: number;
+  intervalHours: number;
+  doseCount: number;
+  instructions?: string;
+}
+
+export async function parsePrescriptionText(
+  prescriptionText: string,
+): Promise<ParsedMedicationSchedule[]> {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content:
+          '처방 약 텍스트를 분석하여 복약 스케줄 JSON 배열로 변환하세요.\n' +
+          '각 항목: name(약명), startHour(0-23 첫 복용 시), intervalHours(복용 간격), doseCount(하루 횟수), instructions(복용 안내)\n' +
+          '반드시 JSON 배열만 반환: [{"name":"...","startHour":8,"intervalHours":8,"doseCount":3,"instructions":"..."}]',
+      },
+      { role: 'user', content: prescriptionText },
+    ],
+    temperature: 0.2,
+    max_tokens: 800,
+  });
+
+  const content = response.choices[0]?.message?.content || '[]';
+  try {
+    const parsed = JSON.parse(content.replace(/```json\n?|\n?```/g, '').trim());
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function ocrPrescriptionImage(imageBase64: string): Promise<string> {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: '이 처방전/약봉투 이미지에서 약 이름, 복용 횟수, 복용 시간, 주의사항을 한국어로 추출하세요. OCR 텍스트 형태로 반환하세요.',
+          },
+          {
+            type: 'image_url',
+            image_url: { url: imageBase64.startsWith('data:') ? imageBase64 : `data:image/jpeg;base64,${imageBase64}` },
+          },
+        ],
+      },
+    ],
+    max_tokens: 1000,
+  });
+  return response.choices[0]?.message?.content || '';
+}
+
+export async function generateMedicationGuideText(
+  medications: ParsedMedicationSchedule[],
+): Promise<string> {
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      {
+        role: 'system',
+        content:
+          '복약 스케줄을 환자가 이해하기 쉬운 한국어 안내 카드로 작성하세요. 진단/처방 변경은 하지 마세요.\n' +
+          '섹션: 지금 복용할 약, 식사와의 관계, 주의사항 (각 2-3문장)',
+      },
+      { role: 'user', content: JSON.stringify(medications) },
+    ],
+    temperature: 0.5,
+    max_tokens: 600,
+  });
+  return response.choices[0]?.message?.content || '';
 }
