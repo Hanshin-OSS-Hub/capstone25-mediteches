@@ -10,6 +10,7 @@ const navLinks = [
   { href: '/bodymap', label: '바디맵' },
   { href: '/summary', label: '증상 요약' },
   { href: '/postvisit', label: '진료 중 · 진료 후' },
+  { href: '/medication', label: '복약 타이머' },
 ];
 
 export default function Header() {
@@ -63,7 +64,7 @@ export default function Header() {
         <div className="flex items-center gap-3">
           {user && (
             <span className="hidden sm:inline text-sm text-gray-500">
-              {user.name}님
+              {user.nameMasked}님
             </span>
           )}
 
@@ -113,7 +114,7 @@ export default function Header() {
           })}
           {user && (
             <div className="mt-2 px-4 py-2 text-sm text-gray-400">
-              {user.name}님으로 로그인됨
+              {user.nameMasked}님으로 로그인됨
             </div>
           )}
         </nav>

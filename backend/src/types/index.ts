@@ -1,7 +1,11 @@
 export interface GuestLoginRequest {
-  agreed: boolean;
+  agreedTerms: boolean;
+  agreedPrivacy: boolean;
+  agreedSensitive: boolean;
   name: string;
   phone: string;
+  residentId: string;
+  consentVersion: string;
 }
 
 export interface ChatRequest {

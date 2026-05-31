@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import type { SymptomRecord } from '@/types';
+import { hasValidPin } from '@/lib/bodymapPin';
+import { PainPinMarkerSvg } from '@/components/bodymap/PainPinMarker';
 import {
   FRONT_REGIONS,
   BACK_REGIONS,
@@ -32,6 +34,7 @@ const BODY_PART_LABELS: Record<string, string> = {
   left_thigh_back: '왼쪽 허벅지 뒤', right_thigh_back: '오른쪽 허벅지 뒤',
   left_knee_back: '왼쪽 무릎 뒤', right_knee_back: '오른쪽 무릎 뒤',
   left_calf: '왼쪽 종아리', right_calf: '오른쪽 종아리',
+  pinpoint: '핀 지정 위치',
 };
 
 function getPainLevelColor(level: number): string {
@@ -282,8 +285,6 @@ interface MiniBodyMapProps {
 }
 
 function MiniBodyMap({ side, regions, outline, recordedParts, symptoms }: MiniBodyMapProps) {
-  const painMap = new Map(symptoms.map((s) => [s.bodyPart, s.painLevel]));
-
   return (
     <div className="w-36 md:w-44 flex flex-col items-center">
       <span className="text-[10px] font-semibold text-gray-400 mb-1 uppercase tracking-wider">
@@ -306,46 +307,32 @@ function MiniBodyMap({ side, regions, outline, recordedParts, symptoms }: MiniBo
             <path
               key={region.id}
               d={region.path}
-              fill={isRecorded ? 'rgba(239, 68, 68, 0.18)' : 'transparent'}
+              fill={isRecorded ? 'rgba(239, 68, 68, 0.12)' : 'transparent'}
               stroke={isRecorded ? '#ef4444' : 'rgba(209,213,219,0.3)'}
-              strokeWidth={isRecorded ? '1.5' : '0.6'}
+              strokeWidth={isRecorded ? '1.2' : '0.6'}
             />
           );
         })}
-        {recordedParts.map((partId) => {
-          const region = regions.find((r) => r.id === partId);
-          if (!region) return null;
-          const level = painMap.get(partId) ?? 0;
-          return (
-            <g key={`dot-${partId}`}>
-              <circle
-                cx={region.labelPos.x}
-                cy={region.labelPos.y}
-                r="12"
-                fill={getPainLevelColor(level)}
-                opacity={0.25}
-              />
-              <circle
-                cx={region.labelPos.x}
-                cy={region.labelPos.y}
-                r="6"
-                fill={getPainLevelColor(level)}
-                stroke="#fff"
-                strokeWidth="1.5"
-              />
-              <text
+        {symptoms
+          .filter((s) => (s.side === side || (!s.side && side === 'front')) && hasValidPin(s.x, s.y))
+          .map((s) => (
+            <PainPinMarkerSvg key={`pin-${s.id}`} x={s.x!} y={s.y!} painLevel={s.painLevel} size="sm" />
+          ))}
+        {symptoms
+          .filter((s) => (s.side === side || (!s.side && side === 'front')) && !hasValidPin(s.x, s.y))
+          .map((s) => {
+            const region = regions.find((r) => r.id === s.bodyPart);
+            if (!region) return null;
+            return (
+              <PainPinMarkerSvg
+                key={`fallback-${s.id}`}
                 x={region.labelPos.x}
-                y={region.labelPos.y + 3.5}
-                textAnchor="middle"
-                fontSize="7"
-                fontWeight="bold"
-                fill="#fff"
-              >
-                {level}
-              </text>
-            </g>
-          );
-        })}
+                y={region.labelPos.y}
+                painLevel={s.painLevel}
+                size="sm"
+              />
+            );
+          })}
         <text
           x="150" y="540" textAnchor="middle"
           fontSize="10" fill={side === 'front' ? '#c8d5cd' : '#c7d0e6'} fontWeight="500"

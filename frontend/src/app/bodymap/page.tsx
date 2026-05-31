@@ -1,18 +1,49 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import dynamic from 'next/dynamic';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import BodyMapCanvas from '@/components/bodymap/BodyMapCanvas';
 import { FRONT_REGIONS, BACK_REGIONS } from '@/components/bodymap/BodyMapCanvas';
+import { getRegion3DLabel } from '@/components/bodymap/BodyMapCanvas3D';
 import SymptomPanel from '@/components/bodymap/SymptomPanel';
 import { useSymptom } from '@/hooks/useSymptom';
 import { useAuth } from '@/contexts/AuthContext';
-import type { SymptomInput } from '@/types';
+import type { SymptomInput, SymptomRecord } from '@/types';
+import { hasValidPin, arePinsClose, type PainPinDisplay, type PinSelection } from '@/lib/bodymapPin';
+
+const BodyMapCanvas3D = dynamic(
+  () => import('@/components/bodymap/BodyMapCanvas3D'),
+  { ssr: false, loading: () => <div className="w-[340px] h-[500px] rounded-2xl bg-gray-100 animate-pulse" /> },
+);
+
+function Canvas3DWrapper(props: React.ComponentProps<typeof BodyMapCanvas3D>) {
+  useEffect(() => {
+    return () => {
+      document.body.style.cursor = 'auto';
+    };
+  }, []);
+  return <BodyMapCanvas3D {...props} />;
+}
 
 const ALL_REGIONS = [...FRONT_REGIONS, ...BACK_REGIONS];
 
 function getRegionLabel(id: string): string {
-  return ALL_REGIONS.find((r) => r.id === id)?.label ?? id;
+  if (id === 'pinpoint') return '핀 지정 위치';
+  return ALL_REGIONS.find((r) => r.id === id)?.label ?? getRegion3DLabel(id);
+}
+
+function symptomsToPainPins(symptoms: SymptomRecord[]): PainPinDisplay[] {
+  return symptoms
+    .filter((s) => hasValidPin(s.x, s.y))
+    .map((s) => ({
+      id: s.id,
+      x: s.x!,
+      y: s.y!,
+      painLevel: s.painLevel,
+      side: s.side ?? 'front',
+      bodyPart: s.bodyPart,
+    }));
 }
 
 export default function BodyMapPage() {
@@ -20,26 +51,62 @@ export default function BodyMapPage() {
   const { symptoms, addSymptom, updateSymptom, removeSymptom } = useSymptom(user?.id);
 
   const [side, setSide] = useState<'front' | 'back'>('front');
+  const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
   const [selectedRegion, setSelectedRegion] = useState('');
-  const [recordedRegions, setRecordedRegions] = useState<string[]>([]);
+  const [selectedPin, setSelectedPin] = useState<{ x: number; y: number; side?: 'front' | 'back' } | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
-  const handleRegionSelect = useCallback((regionId: string) => {
-    setSelectedRegion(regionId);
+  const painPins = symptomsToPainPins(
+    editingIndex !== null
+      ? symptoms.filter((_, i) => i !== editingIndex)
+      : symptoms,
+  );
+
+  const handlePinSelect = (pin: PinSelection) => {
+    const pinSide = pin.side ?? side;
+
+    // If clicking near an existing pin on same side, remove it (toggle)
+    const existingIdx = symptoms.findIndex(
+      (s) =>
+        hasValidPin(s.x, s.y) &&
+        (s.side ?? 'front') === pinSide &&
+        arePinsClose(s.x!, s.y!, pin.x, pin.y),
+    );
+    if (existingIdx !== -1) {
+      removeSymptom(existingIdx);
+      setSelectedPin(null);
+      setSelectedRegion('');
+      return;
+    }
+
+    // If same spot as current selection, deselect
+    if (selectedPin && arePinsClose(selectedPin.x, selectedPin.y, pin.x, pin.y)) {
+      setSelectedPin(null);
+      setSelectedRegion('');
+      return;
+    }
+
+    setSelectedRegion(pin.regionId);
+    setSelectedPin({ x: pin.x, y: pin.y, side: pinSide });
+    if (pin.side) {
+      setSide(pin.side);
+    }
     setEditingIndex(null);
-  }, []);
+  };
 
   const handleSymptomSubmit = async (data: SymptomInput) => {
+    const pinX = selectedPin?.x ?? data.x ?? 0;
+    const pinY = selectedPin?.y ?? data.y ?? 0;
+    const pinSide = selectedPin?.side ?? side;
+
     if (editingIndex !== null) {
-      updateSymptom(editingIndex, { ...data, side, x: 0, y: 0 });
+      updateSymptom(editingIndex, { ...data, side: pinSide, x: pinX, y: pinY });
       setEditingIndex(null);
     } else {
-      await addSymptom({ ...data, side, x: 0, y: 0 });
-      setRecordedRegions((prev) =>
-        prev.includes(data.bodyPart) ? prev : [...prev, data.bodyPart],
-      );
+      await addSymptom({ ...data, side: pinSide, x: pinX, y: pinY });
     }
     setSelectedRegion('');
+    setSelectedPin(null);
   };
 
   const handleEditSymptom = (index: number) => {
@@ -47,30 +114,28 @@ export default function BodyMapPage() {
     const symptomSide = symptom.side ?? 'front';
     setSide(symptomSide);
     setSelectedRegion(symptom.bodyPart);
+    if (hasValidPin(symptom.x, symptom.y)) {
+      setSelectedPin({ x: symptom.x!, y: symptom.y! });
+    } else {
+      setSelectedPin(null);
+    }
     setEditingIndex(index);
   };
 
   const handleCancelEdit = () => {
     setEditingIndex(null);
     setSelectedRegion('');
+    setSelectedPin(null);
   };
 
   const handleRemoveSymptom = (index: number) => {
-    const symptom = symptoms[index];
     removeSymptom(index);
     if (editingIndex === index) {
       setEditingIndex(null);
       setSelectedRegion('');
-    }
-    const remainingForPart = symptoms.filter(
-      (s, i) => i !== index && s.bodyPart === symptom.bodyPart,
-    );
-    if (remainingForPart.length === 0) {
-      setRecordedRegions((prev) => prev.filter((r) => r !== symptom.bodyPart));
+      setSelectedPin(null);
     }
   };
-
-  const selectedRegions = selectedRegion ? [selectedRegion] : [];
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
@@ -109,36 +174,71 @@ export default function BodyMapPage() {
             어디가 아프신가요?
           </h2>
           <p className="text-gray-500 text-sm sm:text-base max-w-lg mx-auto leading-relaxed">
-            바디맵에서 아픈 부위를 클릭하세요. 여러 곳이 아프면 하나씩 추가할 수 있습니다.
+            바디맵에서 아픈 곳을 <span className="text-emerald-600 font-medium">정확히 클릭</span>해 핀을 찍으세요. 여러 곳이 아프면 하나씩 추가할 수 있습니다.
           </p>
 
           {/* Step indicators */}
           <div className="flex items-center justify-center gap-2 mt-5">
-            <StepBadge num={1} label="부위 선택" active={!selectedRegion && symptoms.length === 0} done={!!selectedRegion || symptoms.length > 0} />
+            <StepBadge num={1} label="핀 찍기" active={!selectedPin && symptoms.length === 0} done={!!selectedPin || symptoms.length > 0} />
             <StepConnector />
-            <StepBadge num={2} label="증상 입력" active={!!selectedRegion} done={symptoms.length > 0} />
+            <StepBadge num={2} label="증상 입력" active={!!selectedPin} done={symptoms.length > 0} />
             <StepConnector />
             <StepBadge num={3} label="요약 확인" active={false} done={false} />
           </div>
         </div>
 
+          {/* View mode toggle */}
+          <div className="flex justify-center gap-2 mb-6">
+            <button
+              type="button"
+              onClick={() => setViewMode('2d')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${viewMode === '2d' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}`}
+            >
+              2D 바디맵
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('3d')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${viewMode === '3d' ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-600'}`}
+            >
+              3D 바디맵
+            </button>
+          </div>
+
         {/* Main content */}
         <div className="flex flex-col lg:flex-row gap-8 items-start justify-center">
           {/* Left: Body Map */}
           <div className="flex justify-center lg:sticky lg:top-24">
-            <BodyMapCanvas
-              side={side}
-              onRegionSelect={handleRegionSelect}
-              selectedRegions={selectedRegions}
-              recordedRegions={recordedRegions}
-              onSideChange={setSide}
-            />
+            {viewMode === '2d' ? (
+              <BodyMapCanvas
+                key="bodymap-2d"
+                side={side}
+                onPinSelect={handlePinSelect}
+                selectedPin={selectedPin}
+                selectedRegionId={selectedRegion}
+                painPins={painPins}
+                onSideChange={(s) => {
+                  setSide(s);
+                  setSelectedPin(null);
+                  setSelectedRegion('');
+                }}
+              />
+            ) : (
+              <Canvas3DWrapper
+                key="bodymap-3d"
+                onPinSelect={handlePinSelect}
+                selectedPin={selectedPin}
+                selectedRegionId={selectedRegion}
+                painPins={painPins}
+              />
+            )}
           </div>
 
           {/* Right: Symptom Panel */}
           <div className="w-full lg:w-[420px] flex-shrink-0">
             <SymptomPanel
               selectedRegionId={selectedRegion}
+              pinPosition={selectedPin}
               side={side}
               onSubmit={handleSymptomSubmit}
               editMode={editingIndex !== null}

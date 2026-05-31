@@ -75,7 +75,17 @@ export interface Pharmacy {
 
 export interface User {
   id: string;
+  nameMasked: string;
+  phoneMasked: string;
+  role: string;
+}
+
+export interface GuestLoginPayload {
   name: string;
   phone: string;
-  role: string;
+  residentId: string;
+  agreedTerms: boolean;
+  agreedPrivacy: boolean;
+  agreedSensitive: boolean;
+  consentVersion: string;
 }
