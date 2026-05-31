@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth';
+import hospitalPortalRoutes from './routes/hospital-portal';
+import medicationRoutes from './routes/medication';
 import symptomRoutes from './routes/symptom';
 import chatRoutes from './routes/chat';
 import hospitalRoutes from './routes/hospital';
@@ -99,6 +101,9 @@ app.use('/api/', globalLimiter);
 app.use('/api/symptoms/analyze', aiLimiter);
 app.use('/api/symptoms/recommend', aiLimiter);
 app.use('/api/chat', aiLimiter);
+app.use('/api/medication/parse-prescription', aiLimiter);
+app.use('/api/medication/ocr', aiLimiter);
+app.use('/api/medication/guide', aiLimiter);
 
 // ---------------------------------------------------------------------------
 // Health check
@@ -141,6 +146,8 @@ app.get('/api/health', async (_req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 app.use('/api/auth', authRoutes);
+app.use('/api/hospital', hospitalPortalRoutes);
+app.use('/api/medication', medicationRoutes);
 app.use('/api/symptoms', symptomRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/hospitals', hospitalRoutes);

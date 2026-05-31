@@ -8,13 +8,13 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-import type { User } from '@/types';
+import type { User, GuestLoginPayload } from '@/types';
 import * as api from '@/lib/api';
 
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
-  login: (name: string, phone: string, agreed: boolean) => Promise<void>;
+  login: (payload: GuestLoginPayload) => Promise<void>;
   logout: () => void;
 }
 
@@ -39,25 +39,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = useCallback(
-    async (name: string, phone: string, agreed: boolean) => {
-      setLoading(true);
-      try {
-        const res = await api.guestLogin(name, phone, agreed);
-        const userData: User = {
-          id: res.user_id,
-          name,
-          phone,
-          role: res.role,
-        };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
-        setUser(userData);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
-  );
+  const login = useCallback(async (payload: GuestLoginPayload) => {
+    setLoading(true);
+    try {
+      const res = await api.guestLogin(payload);
+      const userData: User = {
+        id: res.user_id,
+        nameMasked: res.name_masked,
+        phoneMasked: res.phone_masked,
+        role: res.role,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
+      setUser(userData);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_KEY);
